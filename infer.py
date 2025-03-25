@@ -59,53 +59,83 @@ def fuse_conv_and_bn(conv, bn):
 
     return fusedconv
 
+def compute_dense_optical_flow_tv_l1(I_prev, I_t):
+    prev_gray = cv2.cvtColor(I_prev, cv2.COLOR_BGR2GRAY)
+    curr_gray = cv2.cvtColor(I_t, cv2.COLOR_BGR2GRAY)
+    optical_flow = cv2.optflow.createOptFlow_DualTVL1()
+    flow = optical_flow.calc(prev_gray, curr_gray, None)  # shape: (H, W, 2)
+    return flow
+
 
 if __name__ == '__main__':
-    image_path_list = sorted(glob('test_images/*.png'))
-    vis_path = 'test_results/'
+    case_name = '04'
+
+    image_path_list = sorted(glob(f'rectified{case_name}/image01/*.jpg'))
+    flow_path = f'{case_name}_flow/'  # renamed for clarity
 
     device = torch.device('cuda')
-
     model = NeuFlow().to(device)
-
     checkpoint = torch.load('neuflow_mixed.pth', map_location='cuda')
-
     model.load_state_dict(checkpoint['model'], strict=True)
 
     for m in model.modules():
         if type(m) is ConvBlock:
-            m.conv1 = fuse_conv_and_bn(m.conv1, m.norm1)  # update conv
-            m.conv2 = fuse_conv_and_bn(m.conv2, m.norm2)  # update conv
-            delattr(m, "norm1")  # remove batchnorm
-            delattr(m, "norm2")  # remove batchnorm
-            m.forward = m.forward_fuse  # update forward
+            m.conv1 = fuse_conv_and_bn(m.conv1, m.norm1)
+            m.conv2 = fuse_conv_and_bn(m.conv2, m.norm2)
+            delattr(m, "norm1")
+            delattr(m, "norm2")
+            m.forward = m.forward_fuse
 
     model.eval()
     model.half()
 
-    image_height , image_width = cv2.imread(image_path_list[0]).shape[:2]
-    # pad height/width if needed for model.init_bhwd
+    image_height, image_width = cv2.imread(image_path_list[0]).shape[:2]
     h_pad = (16 - image_height % 16) % 16
     w_pad = (16 - image_width % 16) % 16
     model.init_bhwd(1, image_height + h_pad, image_width + w_pad, 'cuda')
 
-    if not os.path.exists(vis_path):
-        os.makedirs(vis_path)
+    # Make sure flow directory exists
+    os.makedirs(flow_path, exist_ok=True)
 
     for image_path_0, image_path_1 in zip(image_path_list[:-1], image_path_list[1:]):
 
-        print(image_path_0)
+        # print(image_path_1)
 
         image_0_tensor, image_0_np, pad_h, pad_w = get_cuda_image(image_path_0)
-        image_1_tensor, image_1_np, _, _ = get_cuda_image(image_path_1)  # assume same padding
+        image_1_tensor, image_1_np, _, _ = get_cuda_image(image_path_1)
+
 
         file_name = os.path.basename(image_path_1)
+        base_name = os.path.splitext(file_name)[0]
 
         with torch.no_grad():
+            # --- NeuFlow prediction ---
             flow = model(image_0_tensor, image_1_tensor)[-1][0]
             flow = flow.permute(1, 2, 0).cpu().numpy()
-            flow = remove_padding(flow, pad_h, pad_w)  # crop back if padded
-            flow = flow_viz.flow_to_image(flow)
+            flow = remove_padding(flow, pad_h, pad_w)
+            flow = flow.astype(np.float32)
+            np.save(os.path.join(flow_path, base_name + '_flow.npy'), flow)
+            print(f"Saved NeuFlow to {base_name}_flow.npy")
 
-            image_1_np = cv2.resize(image_1_np, (image_width, image_height))
-            cv2.imwrite(vis_path + file_name, np.vstack([image_1_np, flow]))
+            # # --- TV-L1 prediction ---
+            # flow_tvl1 = compute_dense_optical_flow_tv_l1(image_0_np, image_1_np)
+            # flow_tvl1 = flow_tvl1.astype(np.float32)
+            # np.save(os.path.join(flow_path, base_name + '_flow_tvl1.npy'), flow_tvl1)
+
+            # # --- Visualization ---
+            # flow_img_neuflow = flow_viz.flow_to_image(flow)
+            # flow_img_tvl1 = flow_viz.flow_to_image(flow_tvl1)
+
+            # image_1_vis = cv2.resize(image_1_np, (image_width, image_height))
+            # comparison_image = np.vstack([
+            #     image_1_vis,
+            #     flow_img_neuflow,
+            #     flow_img_tvl1
+            # ])
+            # vis_file = os.path.join(flow_path, base_name + '_compare.jpg')
+            # cv2.imwrite(vis_file, comparison_image)
+
+            # print(f"Saved NeuFlow to {base_name}_flow.npy | TV-L1 to {base_name}_flow_tvl1.npy | Image: {vis_file}")
+
+
+
