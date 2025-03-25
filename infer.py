@@ -68,10 +68,10 @@ def compute_dense_optical_flow_tv_l1(I_prev, I_t):
 
 
 if __name__ == '__main__':
-    case_name = '04'
+    case_name = '11'
 
     image_path_list = sorted(glob(f'rectified{case_name}/image01/*.jpg'))
-    flow_path = f'{case_name}_flow/'  # renamed for clarity
+    flow_path = 'dense_flow/'  # renamed for clarity
 
     device = torch.device('cuda')
     model = NeuFlow().to(device)
@@ -115,26 +115,29 @@ if __name__ == '__main__':
             flow = remove_padding(flow, pad_h, pad_w)
             flow = flow.astype(np.float32)
             np.save(os.path.join(flow_path, base_name + '_flow.npy'), flow)
-            print(f"Saved NeuFlow to {base_name}_flow.npy")
+            # print(f"Saved NeuFlow to {base_name}_flow.npy")
 
             # # --- TV-L1 prediction ---
             # flow_tvl1 = compute_dense_optical_flow_tv_l1(image_0_np, image_1_np)
             # flow_tvl1 = flow_tvl1.astype(np.float32)
             # np.save(os.path.join(flow_path, base_name + '_flow_tvl1.npy'), flow_tvl1)
 
-            # # --- Visualization ---
-            # flow_img_neuflow = flow_viz.flow_to_image(flow)
+            # --- Visualization ---
+            flow_img_neuflow = flow_viz.flow_to_image(flow)
             # flow_img_tvl1 = flow_viz.flow_to_image(flow_tvl1)
 
-            # image_1_vis = cv2.resize(image_1_np, (image_width, image_height))
-            # comparison_image = np.vstack([
-            #     image_1_vis,
-            #     flow_img_neuflow,
-            #     flow_img_tvl1
-            # ])
-            # vis_file = os.path.join(flow_path, base_name + '_compare.jpg')
-            # cv2.imwrite(vis_file, comparison_image)
-
+            image_1_vis = cv2.resize(image_1_np, (image_width, image_height))
+            comparison_image = np.vstack([
+                image_1_vis,
+                flow_img_neuflow
+                # flow_img_tvl1
+            ])
+            vis_dir = os.path.join(flow_path, "visualisation")
+            os.makedirs(vis_dir, exist_ok=True)
+            vis_file = os.path.join(vis_dir, base_name + '.jpg')
+            cv2.imwrite(vis_file, comparison_image)
+            print(f"Saved NeuFlow to {os.path.join(flow_path, base_name + '_flow.npy')} | Image: {vis_file}")
+            
             # print(f"Saved NeuFlow to {base_name}_flow.npy | TV-L1 to {base_name}_flow_tvl1.npy | Image: {vis_file}")
 
 
