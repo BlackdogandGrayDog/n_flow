@@ -6,6 +6,7 @@ import cv2
 from NeuFlow.neuflow import NeuFlow
 from NeuFlow.backbone_v7 import ConvBlock
 from data_utils import flow_viz
+from pathlib import Path
 
 
 def pad_to_multiple(image, multiple=16, mode='edge'):
@@ -21,7 +22,7 @@ def remove_padding(flow, pad_h, pad_w):
     h, w = flow.shape[:2]
     return flow[:h - pad_h, :w - pad_w]
 
-def get_cuda_image(image_path):
+def get_cuda_image(image_path, image_width, image_height):
     image = cv2.imread(image_path)
     image = cv2.resize(image, (image_width, image_height))
 
@@ -65,13 +66,11 @@ def compute_dense_optical_flow_tv_l1(I_prev, I_t):
     optical_flow = cv2.optflow.createOptFlow_DualTVL1()
     flow = optical_flow.calc(prev_gray, curr_gray, None)  # shape: (H, W, 2)
     return flow
+                                   # Update with your actual flow viz
 
-
-if __name__ == '__main__':
-    case_name = '11'
-
-    image_path_list = sorted(glob(f'rectified{case_name}/image01/*.jpg'))
-    flow_path = 'dense_flow/'  # renamed for clarity
+def compute_dense_flow_for_sequence(base_path):
+    image_path_list = sorted(glob(f'{base_path}/*.jpg'))
+    flow_path = f'{base_path}/flow_map/'
 
     device = torch.device('cuda')
     model = NeuFlow().to(device)
@@ -94,16 +93,11 @@ if __name__ == '__main__':
     w_pad = (16 - image_width % 16) % 16
     model.init_bhwd(1, image_height + h_pad, image_width + w_pad, 'cuda')
 
-    # Make sure flow directory exists
     os.makedirs(flow_path, exist_ok=True)
 
     for image_path_0, image_path_1 in zip(image_path_list[:-1], image_path_list[1:]):
-
-        # print(image_path_1)
-
-        image_0_tensor, image_0_np, pad_h, pad_w = get_cuda_image(image_path_0)
-        image_1_tensor, image_1_np, _, _ = get_cuda_image(image_path_1)
-
+        image_0_tensor, image_0_np, pad_h, pad_w = get_cuda_image(image_path_0, image_width, image_height)
+        image_1_tensor, image_1_np, _, _ = get_cuda_image(image_path_1, image_width, image_height)
 
         file_name = os.path.basename(image_path_1)
         base_name = os.path.splitext(file_name)[0]
@@ -141,4 +135,23 @@ if __name__ == '__main__':
             # print(f"Saved NeuFlow to {base_name}_flow.npy | TV-L1 to {base_name}_flow_tvl1.npy | Image: {vis_file}")
 
 
+# def main_cloth_blow_flow(cloth_blow_path: str):
+#     cloth_blow_dir = Path(cloth_blow_path)
 
+#     # List and sort B folders (e.g., B00 to B21)
+#     traj_folders = sorted([f for f in cloth_blow_dir.iterdir() if f.is_dir() and f.name.startswith("B")])
+
+#     for traj in traj_folders:
+#         image_dir = traj / "images"
+#         if image_dir.exists():
+#             print(f"▶️ Processing flow for: {image_dir}")
+#             compute_dense_flow_for_sequence(str(image_dir))
+#         else:
+#             print(f"⛔ No images found in {image_dir}, skipping...")
+
+#     print("✅ Done computing flow for all sub-trajectories.")
+
+# # Example usage
+# main_cloth_blow_flow("../deformable_slam/deformation_datasets/cloth_datasets/clothblow_test")
+
+compute_dense_flow_for_sequence("../deformable_slam/stereo_datasets/stereo_surgt/case8/image01")
